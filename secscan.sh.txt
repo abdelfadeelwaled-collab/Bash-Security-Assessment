@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# 1. Error Handling & Arguments Check
+if [ -z "$1" ]; then
+    echo "Usage: ./secscan.sh <target>"
+    exit 1
+fi
+
+TARGET=$1
+echo "[+] Starting security assessment on: $TARGET"
+
+# 2. Setup Report Directory
+echo "[*] Creating report directories..."
+mkdir -p report
+SCAN_FILE="report/scan.txt"
+SUMMARY_FILE="report/summary.txt"
+
+echo "Target: $TARGET" > $SUMMARY_FILE
+echo "Scan Date: $(date)" >> $SUMMARY_FILE
+
+# 3. Host Availability Check
+echo "[*] Checking if target $TARGET is reachable..."
+if ! ping -c 1 $TARGET &> /dev/null; then
+    echo "[-] Target $TARGET is unreachable. Exiting."
+    exit 1
+fi
+echo "[+] Target $TARGET is UP!" | tee -a $SUMMARY_FILE
+
+# 4. Port Enumeration
+echo "[*] Scanning for open ports and services (This might take a minute)..."
+if ! command -v nmap &> /dev/null; then
+    echo "[-] nmap is not installed. Please install it."
+    exit 1
+fi
+
+# Run nmap and save to scan.txt
+nmap -sV -p- -T4 $TARGET -oN $SCAN_FILE > /dev/null
+
+echo "[+] Open Ports & Services extracted:" | tee -a $SUMMARY_FILE
+grep "^[0-9]" $SCAN_FILE | tee -a $SUMMARY_FILE
+# 5. Automated Enumeration & Decision Making
+echo "[*] Starting automated enumeration based on discovered services..."
+FINDINGS_FILE="report/findings.txt"
+echo "=== Security Assessment Findings ===" > $FINDINGS_FILE
+echo "Target: $TARGET" >> $FINDINGS_FILE
+echo "Date: $(date)" >> $FINDINGS_FILE
+echo "" >> $FINDINGS_FILE
+
+# HTTP Enumeration Decision
+if grep -q "80/tcp" $SCAN_FILE; then
+    echo "[+] HTTP service detected. Running basic web enumeration..."
+    echo "---- HTTP Enumeration (Port 80) ----" >> $FINDINGS_FILE
+    echo "Evidence (HTTP Headers):" >> $FINDINGS_FILE
+    # Fetching headers as required for basic HTTP enumeration
+    curl -I -s http://$TARGET | head -n 5 >> $FINDINGS_FILE
+    echo "" >> $FINDINGS_FILE
+fi
+
+# SSH Enumeration Decision
+if grep -q "22/tcp" $SCAN_FILE; then
+    echo "[+] SSH service detected. Grabbing banner/version..."
+    echo "---- SSH Enumeration (Port 22) ----" >> $FINDINGS_FILE
+    echo "Evidence (SSH Banner):" >> $FINDINGS_FILE
+    # Grabbing SSH banner as required for SSH enumeration
+    nc -vn -w 2 $TARGET 22 >> $FINDINGS_FILE 2>&1
+    echo "" >> $FINDINGS_FILE
+fi
+
+echo "[+] Assessment complete! All evidence saved in the 'report' directory."
